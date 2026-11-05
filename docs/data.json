@@ -1,0 +1,21 @@
+{
+  "as_of": "November 3, 2026",
+  "items": [
+    {
+      "name": "Gasoline",
+      "label": "Gasoline (RON 91)",
+      "price": "89.31",
+      "range": "₱78.60 – ₱116.88",
+      "change": "+₱3.50 vs last wk",
+      "direction": "up"
+    },
+    {
+      "name": "Diesel",
+      "label": "Diesel",
+      "price": "94.41",
+      "range": "₱85.00 – ₱116.46",
+      "change": "-₱1.00 vs last wk",
+      "direction": "down"
+    }
+  ]
+}
