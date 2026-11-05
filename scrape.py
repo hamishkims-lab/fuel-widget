@@ -1,57 +1,58 @@
-"""fuelprice.ph에서 가솔린·디젤 평균가를 읽어 docs/index.html 카드와 docs/data.json을 만든다."""
+"""GasWatch PH(gaswatchph.com)의 메트로 마닐라 주간 평균가를 읽어 docs/index.html 카드와 docs/data.json을 만든다."""
 import html
 import json
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
 
-URL = "https://www.fuelprice.ph/"
+SITE = "https://gaswatchph.com/"
 OUT = Path(__file__).parent / "docs"
-FUELS = {"Gasoline": "Gasoline (RON 91)", "Diesel": "Diesel"}
+UA = {"User-Agent": "fuel-widget/1.0 (weekly personal Notion widget)"}
 
 
-def clean(s: str) -> str:
-    return re.sub(r"\s+", " ", s or "").strip()
+def fetch_data_js() -> str:
+    home = requests.get(SITE, timeout=30, headers=UA)
+    home.raise_for_status()
+    m = re.search(r'src="/?(js/data\.js[^"]*)"', home.text)
+    url = SITE + (m.group(1) if m else "js/data.js")
+    r = requests.get(url, timeout=60, headers=UA)
+    r.raise_for_status()
+    return r.text
 
 
-def parse(page: str) -> dict:
-    soup = BeautifulSoup(page, "html.parser")
+def parse(js: str) -> dict:
+    start = js.find("const PRICE_HISTORY")
+    if start < 0:
+        raise ValueError("PRICE_HISTORY를 찾지 못했습니다. 사이트 구조가 바뀌었을 수 있습니다.")
+    body = js[start:]
+    weeks = re.findall(r'week:\s*"(\d{4}-\d{2}-\d{2})"', body)[:2]
+    labels = re.findall(r'label:\s*"([^"]+)"', body)[:2]
+    diesel = [float(x) for x in re.findall(r"dieselAvg:\s*([\d.]+)", body)[:2]]
+    gas = [float(x) for x in re.findall(r"unleadedAvg:\s*([\d.]+)", body)[:2]]
+    if len(weeks) < 2 or len(diesel) < 2 or len(gas) < 2:
+        raise ValueError("주간 평균값을 찾지 못했습니다. 사이트 구조가 바뀌었을 수 있습니다.")
 
-    # 기준일: "as of November 3, 2026"
-    sub = soup.select_one(".hero-sub")
-    m = re.search(r"as of (.+?\d{4})", clean(sub.get_text()) if sub else "")
-    as_of = m.group(1) if m else ""
+    def item(label, now, prev):
+        chg = round(now - prev, 2)
+        return {
+            "label": label,
+            "price": f"{now:.2f}",
+            "change": f"{'+' if chg > 0 else '−' if chg < 0 else '±'}₱{abs(chg):.2f} vs last wk",
+            "direction": "up" if chg > 0 else "down" if chg < 0 else "flat",
+        }
 
-    items = []
-    for row in soup.select("a.hf-row"):
-        name_el = row.select_one(".hf-name")
-        if not name_el:
-            continue
-        name = clean(name_el.find(string=True, recursive=False))
-        if name not in FUELS:
-            continue
-        val = row.select_one(".hf-val")
-        price = re.search(r"₱\s*([\d,]+\.\d+)", val.get_text() if val else "")
-        rng = row.select_one(".hf-range")
-        chg = row.select_one(".hf-chg")
-        chg_text = clean(chg.get_text()) if chg else ""
-        direction = "up" if "up" in row.get("class", []) else "down" if "down" in row.get("class", []) else "flat"
-        items.append({
-            "name": name,
-            "label": FUELS[name],
-            "price": price.group(1) if price else None,
-            "range": clean(rng.get_text()).replace("Range", "").strip() if rng else "",
-            "change": chg_text,
-            "direction": direction,
-        })
-
-    if len(items) < 2 or any(i["price"] is None for i in items):
-        raise ValueError("가격 카드를 찾지 못했습니다. 사이트 구조가 바뀌었을 수 있습니다.")
-    return {"as_of": as_of, "items": items}
+    wk = date.fromisoformat(weeks[0])
+    return {
+        "week": weeks[0],
+        "as_of": f"{wk.strftime('%b')} {wk.day}, {wk.year} ({labels[0]})",
+        "items": [
+            item("Gasoline (RON 91)", gas[0], gas[1]),
+            item("Diesel", diesel[0], diesel[1]),
+        ],
+    }
 
 
 def render(data: dict) -> str:
@@ -60,11 +61,8 @@ def render(data: dict) -> str:
     for it in data["items"]:
         arrow = {"up": "▲", "down": "▼"}.get(it["direction"], "■")
         cards.append(f"""
-    <a class="card" href="https://www.fuelprice.ph/" target="_blank" rel="noopener">
-      <div class="left">
-        <div class="name">{html.escape(it['label'])}</div>
-        <div class="range">Range {html.escape(it['range'])}</div>
-      </div>
+    <a class="card" href="https://gaswatchph.com/price-history" target="_blank" rel="noopener">
+      <div class="name">{html.escape(it['label'])}</div>
       <div class="right">
         <div class="price">₱{html.escape(it['price'])}<span>/L</span></div>
         <div class="chg {it['direction']}">{arrow} {html.escape(it['change'])}</div>
@@ -90,7 +88,6 @@ def render(data: dict) -> str:
           padding:14px 16px; border:1px solid var(--line); border-radius:12px;
           color:inherit; text-decoration:none; }}
   .name {{ font-size:17px; font-weight:700; }}
-  .range {{ font-size:12px; color:var(--mute); margin-top:4px; }}
   .right {{ text-align:right; }}
   .price {{ font-size:24px; font-weight:800; font-variant-numeric:tabular-nums; }}
   .price span {{ font-size:13px; font-weight:400; color:var(--mute); }}
@@ -100,23 +97,18 @@ def render(data: dict) -> str:
 </style>
 </head>
 <body>
-  <div class="head">필리핀 평균 주유소 가격 · {html.escape(data['as_of'])} 기준</div>
+  <div class="head">메트로 마닐라 평균 주유소 가격 · {html.escape(data['as_of'])}</div>
   <div class="grid">{''.join(cards)}
   </div>
-  <div class="foot">출처: fuelprice.ph · 갱신 {kst}</div>
+  <div class="foot">출처: GasWatch PH · 갱신 {kst}</div>
 </body>
 </html>
 """
 
 
 def main():
-    if len(sys.argv) > 1:  # 테스트용: 저장된 HTML 파일로 실행
-        page = Path(sys.argv[1]).read_text(encoding="utf-8")
-    else:
-        r = requests.get(URL, timeout=30, headers={"User-Agent": "Mozilla/5.0 (fuel-widget; weekly)"})
-        r.raise_for_status()
-        page = r.text
-    data = parse(page)
+    js = Path(sys.argv[1]).read_text(encoding="utf-8") if len(sys.argv) > 1 else fetch_data_js()
+    data = parse(js)
     OUT.mkdir(exist_ok=True)
     (OUT / "index.html").write_text(render(data), encoding="utf-8")
     (OUT / "data.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
