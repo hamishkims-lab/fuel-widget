@@ -1,17 +1,17 @@
 {
-  "week": "2026-11-17",
-  "as_of": "Nov 17, 2026 (Nov 17 – 23)",
+  "week": "2026-11-24",
+  "as_of": "Nov 24, 2026 (Nov 24 – 30)",
   "items": [
     {
       "label": "Gasoline (RON 91)",
-      "price": "72.25",
-      "change": "−₱3.94 vs last wk",
+      "price": "68.90",
+      "change": "−₱3.35 vs last wk",
       "direction": "down"
     },
     {
       "label": "Diesel",
-      "price": "86.70",
-      "change": "−₱3.65 vs last wk",
+      "price": "84.01",
+      "change": "−₱2.69 vs last wk",
       "direction": "down"
     }
   ]
